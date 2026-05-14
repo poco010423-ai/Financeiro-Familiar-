@@ -1,8 +1,10 @@
-/* Service Worker — Painel Financeiro Familiar
-   Garante funcionamento 100% offline após primeira visita */
+/* Service Worker — Financeiro Familiar
+   Versão: vaf-v26
+   IMPORTANTE: incrementar CACHE a cada deploy para forçar atualização nos clientes */
 
-var CACHE = 'financeiro-v1';
+var CACHE = 'vaf-v26';
 var ASSETS = [
+  './',
   './index.html',
   './manifest.json',
   './icon.png'
@@ -16,7 +18,7 @@ self.addEventListener('install', function(e){
   self.skipWaiting();
 });
 
-/* Remove caches antigos ao ativar nova versão */
+/* Remove caches antigos (versões anteriores) ao ativar */
 self.addEventListener('activate', function(e){
   e.waitUntil(
     caches.keys().then(function(keys){
@@ -29,21 +31,25 @@ self.addEventListener('activate', function(e){
   self.clients.claim();
 });
 
-/* Serve do cache primeiro; fallback para rede se não encontrar */
+/* Estratégia: cache primeiro, fallback para rede */
 self.addEventListener('fetch', function(e){
+  if(e.request.method !== 'GET') return;
+  var url = e.request.url;
+  if(url.indexOf('chrome-extension') === 0) return;
+  if(url.indexOf('content://') === 0) return;
+
   e.respondWith(
-    caches.match(e.request).then(function(r){
-      return r || fetch(e.request).then(function(res){
-        /* Cacheia dinamicamente recursos novos */
-        if(res && res.status === 200 && e.request.method === 'GET'){
-          var resClone = res.clone();
-          caches.open(CACHE).then(function(c){ c.put(e.request, resClone); });
-        }
-        return res;
+    caches.match(e.request).then(function(cached){
+      if(cached) return cached;
+      return fetch(e.request).then(function(resp){
+        if(!resp || resp.status !== 200) return resp;
+        var clone = resp.clone();
+        caches.open(CACHE).then(function(c){ c.put(e.request, clone); });
+        return resp;
+      }).catch(function(){
+        /* Offline total: retorna index.html para navegação */
+        return caches.match('./index.html');
       });
-    }).catch(function(){
-      /* Se estiver completamente offline e não tiver cache, retorna o index */
-      return caches.match('./index.html');
     })
   );
 });

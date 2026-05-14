@@ -6993,48 +6993,11 @@ function addNewCatFromMgr(){
     document.head.appendChild(atiLink);
   }catch(e){}
 
-  // Service Worker \u2014 funciona em HTTP, HTTPS e file://
-  var swCode=[
-    '"use strict";',
-    'var CACHE_NAME="vaf-v25";',
-    'var OFFLINE_ASSETS=[];',
-    'self.addEventListener("install",function(e){',
-    '  self.skipWaiting();',
-    '});',
-    'self.addEventListener("activate",function(e){',
-    '  e.waitUntil(caches.keys().then(function(keys){',
-    '    return Promise.all(keys.filter(function(k){return k!==CACHE_NAME;}).map(function(k){return caches.delete(k);}));',
-    '  }));',
-    '  self.clients.claim();',
-    '});',
-    'self.addEventListener("fetch",function(e){',
-    '  if(e.request.method!=="GET")return;',
-    '  var url=e.request.url;',
-    '  if(url.indexOf("chrome-extension")===0)return;',
-    '  if(url.indexOf("file://")===0)return;',
-    '  if(url.indexOf("content://")===0)return;',
-    '  e.respondWith(',
-    '    caches.match(e.request).then(function(cached){',
-    '      if(cached)return cached;',
-    '      return fetch(e.request).then(function(resp){',
-    '        if(!resp||resp.status!==200)return resp;',
-    '        var clone=resp.clone();',
-    '        caches.open(CACHE_NAME).then(function(c){c.put(e.request,clone);});',
-    '        return resp;',
-    '      }).catch(function(){',
-    '        return new Response("",{status:503,statusText:"Offline"});',
-    '      });',
-    '    })',
-    '  );',
-    '})'
-  ].join("\n");
-  try{
-    var swBlob=new Blob([swCode],{type:'application/javascript'});
-    var swUrl=URL.createObjectURL(swBlob);
-    if('serviceWorker' in navigator){
-      navigator.serviceWorker.register(swUrl,{scope:'.'}).catch(function(){});
-    }
-  }catch(e){}
+  // Service Worker — arquivo externo (GitHub Pages / HTTPS)
+  // Blob URL removido: scope incorreto em HTTPS causava SW sem efeito
+  if('serviceWorker' in navigator && location.protocol !== 'file:'){
+    navigator.serviceWorker.register('./sw.js', {scope: './'}).catch(function(){});
+  }
 })();
 
 /* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
