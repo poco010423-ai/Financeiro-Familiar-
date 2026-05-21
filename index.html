@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -502,6 +502,9 @@ body{overscroll-behavior-y:none;-webkit-overscroll-behavior-y:none}
   .modal{border-radius:16px 16px 0 0;max-height:calc(100vh - 70px - env(safe-area-inset-bottom));position:fixed;bottom:calc(64px + env(safe-area-inset-bottom));left:0;right:0;max-width:100%!important;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column}
   .overlay{-webkit-align-items:flex-end;align-items:flex-end;padding:0}
 }
+/* ── KEYBOARD MOBILE FIX: quando o teclado virtual sobe ── */
+body.keyboard-open .overlay.open{-webkit-align-items:flex-start!important;align-items:flex-start!important;-webkit-justify-content:flex-start!important;justify-content:flex-start!important;padding-top:10px!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch}
+body.keyboard-open .modal{margin-bottom:280px!important;max-height:none!important;position:relative!important;bottom:auto!important}
 @media(max-width:480px){
   .hdr-btn{min-width:40px;height:36px}
   .user-badge{padding:3px 8px 3px 3px;max-width:120px}
@@ -2321,20 +2324,36 @@ function _calcStorageBytes(){
   return used;
 }
 
-function _checkStorageQuota(){
+async function _checkStorageQuota(){
   try{
-    var used=_calcStorageBytes();
-    var pct=used/LS_LIMIT_BYTES*100;
+    var used=0;
+    var quota=5*1024*1024; /* Fallback 5MB */
+    /* 1. Tentar estimar cota real via Storage API (cobre IndexedDB + Cache) */
+    if(navigator.storage&&navigator.storage.estimate){
+      var est=await navigator.storage.estimate();
+      used=est.usage||0;
+      quota=est.quota||quota;
+    }else{
+      /* Fallback: tamanho do payload encriptado no IndexedDB */
+      try{
+        var encrypted=await localforage.getItem('vaf_secure');
+        if(encrypted)used=encrypted.length*2;
+      }catch(_lfe){}
+    }
+    /* 2. Somar localStorage (pequeno, mas contabilizar) */
+    var lsUsed=_calcStorageBytes();
+    var totalUsed=used+lsUsed;
+    var pct=(totalUsed/quota)*100;
     var lvl=pct>=95?3:pct>=85?2:pct>=70?1:0;
     if(lvl>0&&lvl>_storageWarnLevel){
       _storageWarnLevel=lvl;
-      var usedKB=Math.round(used/1024);
+      var usedKB=Math.round(totalUsed/1024);
       if(lvl===3)showToast('\uD83D\uDD34 Armazenamento cr\u00edtico: '+Math.round(pct)+'% ('+usedKB+'KB). EXPORTE O BACKUP AGORA!');
       else if(lvl===2)showToast('\uD83D\uDFE0 Armazenamento: '+Math.round(pct)+'% ('+usedKB+'KB). Exporte um backup em breve.');
       else showToast('\uD83D\uDFE1 Armazenamento: '+Math.round(pct)+'% ('+usedKB+'KB). Considere exportar um backup.');
     }
     if(pct<60){_storageWarnLevel=0;}
-    _updateStorageUI(used,pct);
+    _updateStorageUI(totalUsed,pct,quota);
   }catch(e){}
 }
 
@@ -2676,7 +2695,8 @@ function renderTx(filter){
       html+='<td class="td-val '+(t.type==='income'?'pos':'neg')+'">'+(t.type==='income'?'+':'-')+' '+fmtCur(t.value)+_ajBadge+'<span class="td-val-status">'+stHTML(t.status)+'</span></td>';
       html+='<td class="td-status">'+stHTML(t.status)+(t.installTotal>0?'<span class="install-badge">&#128198; '+t.installIndex+'/'+t.installTotal+'</span>':'')+'</td>';
       html+='<td class="td-acts">';
-      if(canEditConfirmed(t)){
+      var canModify=(t.status==='pending')?canEdit(t.date):canEditConfirmed(t);
+      if(canModify){
         html+='<button class="act-btn edit" data-edit="'+t.id+'" title="Editar lançamento (últimos 5 dias)" aria-label="Editar"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>';
         html+='<button class="act-btn del" data-del="'+t.id+'" title="Excluir lançamento (últimos 5 dias)" aria-label="Excluir"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg></button>';
       }else{
@@ -4363,7 +4383,11 @@ function openModal(){
 function openEdit(id){
   var t=null;for(var i=0;i<transactions.length;i++){if(transactions[i].id===id){t=transactions[i];break;}}
   if(!t)return;
-  if(!canEdit(t.date)){showToast('\u26D4 Lançamentos de meses anteriores não podem ser editados.');return;}
+  if(t.status==='pending'){
+    if(!canEdit(t.date)){showToast('\u26D4 Lançamentos de meses anteriores não podem ser editados.');return;}
+  }else{
+    if(!canEditConfirmed(t)){showToast('\u26D4 Lançamentos confirmados há mais de 5 dias não podem ser editados.');return;}
+  }
   openActionAuth('edit',id,t);
 }
 
@@ -4711,7 +4735,11 @@ function closeActionAuth(){
 function openDelete(id){
   var t=null;for(var i=0;i<transactions.length;i++){if(transactions[i].id===id){t=transactions[i];break;}}
   if(!t)return;
-  if(!canEdit(t.date)){showToast('\u26D4 Lançamentos de meses anteriores não podem ser excluídos.');return;}
+  if(t.status==='pending'){
+    if(!canEdit(t.date)){showToast('\u26D4 Lançamentos de meses anteriores não podem ser excluídos.');return;}
+  }else{
+    if(!canEditConfirmed(t)){showToast('\u26D4 Lançamentos confirmados há mais de 5 dias não podem ser excluídos.');return;}
+  }
   openActionAuth('delete',id,t);
 }
 
@@ -5127,23 +5155,16 @@ document.addEventListener('DOMContentLoaded',function(){
 
 /* ── KEYBOARD SCROLL FIX (iOS Dynamic Island + Android WebView) ──
    Quando o teclado virtual sobe e encolhe o visualViewport,
-   garante que o campo focado dentro de um modal permaneça visível. */
+   garante que o campo focado dentro de um modal permaneça visível.
+   Adiciona classe body.keyboard-open para reposicionar overlay/modal via CSS. */
 (function(){
   var _kbFocused=null;
+  var _kbCloseTimer=null;
   function _scrollFocused(){
     var el=_kbFocused;
     if(!el)return;
-    var vpH=window.visualViewport?window.visualViewport.height:window.innerHeight;
-    var margin=20;
-    var elRect=el.getBoundingClientRect();
-    if(elRect.bottom<=vpH-margin)return; // já visível
-    /* Scroll dentro do modal-body (overflow:auto) — não no body */
-    var scrollEl=el.closest('.modal-body')||el.closest('.modal')||el.closest('.overlay');
-    if(scrollEl){
-      scrollEl.scrollTop+=elRect.bottom-(vpH-margin);
-    }else{
-      el.scrollIntoView({behavior:'smooth',block:'center'});
-    }
+    /* Usar scrollIntoView nativo — funciona melhor com o CSS keyboard-open */
+    el.scrollIntoView({behavior:'smooth',block:'center'});
   }
   /* focusin: dispara quando qualquer input/select/textarea dentro de overlay recebe foco */
   document.addEventListener('focusin',function(e){
@@ -5151,10 +5172,18 @@ document.addEventListener('DOMContentLoaded',function(){
     if(!el||!el.closest('.overlay'))return;
     if(el.tagName!=='INPUT'&&el.tagName!=='SELECT'&&el.tagName!=='TEXTAREA')return;
     _kbFocused=el;
-    /* Delay de 380ms para aguardar o teclado subir completamente */
-    setTimeout(_scrollFocused,380);
+    if(_kbCloseTimer){clearTimeout(_kbCloseTimer);_kbCloseTimer=null;}
+    document.body.classList.add('keyboard-open');
+    /* Delay de 350ms para aguardar o teclado subir completamente */
+    setTimeout(_scrollFocused,350);
   });
-  document.addEventListener('focusout',function(){_kbFocused=null;});
+  document.addEventListener('focusout',function(){
+    _kbFocused=null;
+    /* Debounce: aguarda 200ms antes de remover a classe para evitar flicker ao trocar campos */
+    _kbCloseTimer=setTimeout(function(){
+      document.body.classList.remove('keyboard-open');
+    },200);
+  });
   /* visualViewport.resize: dispara toda vez que o teclado abre/fecha/redimensiona */
   if(window.visualViewport){
     window.visualViewport.addEventListener('resize',function(){

@@ -1,0 +1,28 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+._*
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node (caso use servidor local)
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Logs
+*.log
+
+# Backup files
+*.bak
+*.tmp
